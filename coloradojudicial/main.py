@@ -6,7 +6,7 @@ import pytz
 # DECODO CONFIG
 # ==========================================
 API_URL = "https://scraper-api.decodo.com/v2/scrape"
-TOKEN   = "VTAwMDA0MDI5MzY6UFdfMTJmNzAwZTIxMzlmMjE2NjI4ZTEwOTYwMGQyNGZjYmUw"
+TOKEN   = ""
 
 api_headers = {
     "accept": "application/json",
