@@ -123,32 +123,35 @@ def parse_detail(html):
             seen_keys.add(key)
             entries.append(entry)
 
-    # 2. property_address: alan içi boşluk, adresler arası " -- "
+    # 2. property_address: sadece FREEFORM tipindeki gerçek adres
     addr_parts = []
     for entry in entries:
-        legal_type = entry.get('Type', '').upper()  # ← doc_type değil, legal_type
+        if entry.get('Type', '').upper() == 'FREEFORM':
+            val = entry.get('Freeform Legal', '')
+            if val:
+                addr_parts.append(val)
+
+    property_address = ' -- '.join(addr_parts)
+
+    # 3. legal_description: tüm detaylar (Plat name, Lot, Section vb.)
+    legal_parts = []
+    for entry in entries:
+        legal_type = entry.get('Type', '').upper()
         fields = []
+        skip = {'Type', 'Gov. Unit'}
         if legal_type == 'FREEFORM':
             val = entry.get('Freeform Legal', '')
             if val:
-                fields.append(val)
+                fields.append(f"FREEFORM: {val}")
         else:
-            skip = {'Type', 'Gov. Unit'}
+            fields.append(f"Type: {entry.get('Type', '')}")
             for label, value in entry.items():
                 if label not in skip and value:
                     fields.append(f"{label}: {value}")
         if fields:
-            addr_parts.append(' '.join(fields))
+            legal_parts.append(' '.join(fields))
 
-    property_address = ' -- '.join(addr_parts)
-
-    # 3. legal_description: sadece tip(ler), duplicate'siz
-    types_seen = []
-    for entry in entries:
-        t = entry.get('Type', '')
-        if t and t not in types_seen:
-            types_seen.append(t)
-    legal_desc = ' | '.join(types_seen)
+    legal_desc = ' -- '.join(legal_parts)
 
     return {
         'instrument_number': instrument_no,
@@ -323,11 +326,23 @@ for page_num in range(1, total_pages + 1):
                 row = parse_detail(detail_html)
                 records.append(row)
                 print(f"✓  {row['document_type']} | {row['grantee'][:40]}")
+                if len(records) % 50 == 0:
+                    with open(CSV_FILE, 'w', newline='', encoding='utf-8-sig') as f:
+                        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+                        writer.writeheader()
+                        writer.writerows(records)
+                    print(f"  💾 {len(records)} kayıt kaydedildi")
         else:
             consecutive_login_fails = 0
             row = parse_detail(detail_html)
             records.append(row)
             print(f"✓  {row['document_type']} | {row['grantee'][:40]}")
+            if len(records) % 50 == 0:
+                with open(CSV_FILE, 'w', newline='', encoding='utf-8-sig') as f:
+                    writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+                    writer.writeheader()
+                    writer.writerows(records)
+                print(f"  💾 {len(records)} kayıt kaydedildi")
 
         time.sleep(2)
 
@@ -349,3 +364,24 @@ if failed_ids:
     print(f"Başarısız olan {len(failed_ids)} ID: {failed_ids}")
 
 print(f"\nToplam: {len(records)} başarılı / {len(failed_ids)} başarısız / {total_records} beklenen")
+
+
+import json
+
+WEBHOOK_URL = "https://kinglyenterprise.app.n8n.cloud/webhook/a5dc0312-6225-40b4-91ed-deda0fe4fbd7"
+BATCH_SIZE  = 100
+
+if records:
+    # Webhook — 100'er 100'er gönder
+    for i in range(0, len(records), BATCH_SIZE):
+        batch = records[i:i + BATCH_SIZE]
+        resp  = requests.post(WEBHOOK_URL, json=batch)
+        print(f"Webhook batch {i//BATCH_SIZE + 1}: {resp.status_code} ({len(batch)} kayıt)")
+        time.sleep(1)
+
+    # JSON kaydet
+    with open("elpaso_records.json", "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+    print("elpaso_records.json kaydedildi.")
+else:
+    print("Webhook/JSON: Gönderilecek veri yok")
