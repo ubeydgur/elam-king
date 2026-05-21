@@ -251,6 +251,12 @@ results           = []
 failed_ids        = []
 consecutive_fails = 0
 
+keys = [
+    "noticeId", "publicationName", "publicationCity", "publicationState",
+    "publicationCounty", "publicationDate", "authenticationNo",
+    "publicationUrl", "pdfText", "scraped_at",
+]
+
 for i, notice_id in enumerate(all_ids, 1):
     print(f"\n[{i}/{len(all_ids)}] Notice {notice_id} işleniyor...")
     detail_url = f"https://www.publicnoticecolorado.com/(S({sid}))/Details.aspx?SID={sid}&ID={notice_id}"
@@ -291,7 +297,6 @@ for i, notice_id in enumerate(all_ids, 1):
     pdf_tag     = soup_d.find("a", href=re.compile(r"PDFDocument", re.I))
     pdf_href    = pdf_tag.get("href", "") if pdf_tag else ""
     pdf_text    = ""
-    pdf_url     = ""
 
     if pdf_href:
         try:
@@ -314,22 +319,25 @@ for i, notice_id in enumerate(all_ids, 1):
         "publicationDate":   get_span("lblPublicationDAte"),
         "authenticationNo":  get_span("lblNoticeAuthenticationNo"),
         "publicationUrl":    pub_url_tag.get("href", "") if pub_url_tag else "",
-        "pdfAttachement":    pdf_url,
         "pdfText":           pdf_text,
         "scraped_at":        datetime.datetime.now(colorado_tz).strftime("%Y-%m-%d %H:%M"),
     }
     results.append(record)
     print(f"  ✓ {record['publicationCity']} | pdf={'✓' if pdf_text else '✗'}")
+    
+    # Her 50 kayıtta CSV'ye yaz
+    if len(results) % 50 == 0:
+        with open("notices.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=keys)
+            writer.writeheader()
+            writer.writerows(results)
+        print(f"  💾 {len(results)} kayıt kaydedildi")
 
 
 # ══════════════════════════════════════════
 # ADIM 4: CSV'ye yaz
 # ══════════════════════════════════════════
-keys = [
-    "noticeId", "publicationName", "publicationCity", "publicationState",
-    "publicationCounty", "publicationDate", "authenticationNo",
-    "publicationUrl", "pdfAttachement", "pdfText", "scraped_at",
-]
+
 
 with open("notices.csv", "w", newline="", encoding="utf-8") as f:
     writer = csv.DictWriter(f, fieldnames=keys)
@@ -346,7 +354,6 @@ webhook_data = [
     {
         # Müşterinin istediği alanlar
         "noticeContent":   r["pdfText"],
-        "pdfAttachement":  r["pdfAttachement"],
         "publicationCity": r["publicationCity"],
         "publicationCounty": r["publicationCounty"],
         "publicationState": r["publicationState"],
@@ -362,10 +369,14 @@ webhook_data = [
 ]
 
 WEBHOOK_URL = "https://kinglyenterprise.app.n8n.cloud/webhook/a5dc0312-6225-40b4-91ed-deda0fe4fbd7"
+BATCH_SIZE  = 100
 
 if webhook_data:
-    webhook_resp = requests.post(WEBHOOK_URL, json=webhook_data)
-    print(f"Webhook: {webhook_resp.status_code}")
+    for i in range(0, len(webhook_data), BATCH_SIZE):
+        batch = webhook_data[i:i + BATCH_SIZE]
+        resp  = requests.post(WEBHOOK_URL, json=batch)
+        print(f"Webhook batch {i//BATCH_SIZE + 1}: {resp.status_code} ({len(batch)} kayıt)")
+        time.sleep(1)
 else:
     print("Webhook: Gönderilecek veri yok")
 
